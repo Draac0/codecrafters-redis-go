@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -10,16 +11,17 @@ import (
 
 func handleConn(conn net.Conn) {
 	defer conn.Close() // runs to clean up the connection after the function completion
-	buf := make([]byte, 1024)
+	reader := bufio.NewReader(conn)
 	for {
-		_, err := conn.Read(buf)
+		value, err := readValue(reader)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				fmt.Println("handleConn read: ", err.Error())
 			}
 			break
 		}
-		_, err = conn.Write([]byte("+PONG\r\n"))
+		writeValue := handleCommand(value)
+		_, err = conn.Write(writeValue)
 		if err != nil {
 			fmt.Println("handleConn write: ", err.Error())
 			break
