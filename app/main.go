@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-func handleConn(conn net.Conn) {
+func handleConn(conn net.Conn, store *Store) {
 	defer conn.Close() // runs to clean up the connection after the function completion
 	reader := bufio.NewReader(conn)
 	for {
@@ -20,7 +20,7 @@ func handleConn(conn net.Conn) {
 			}
 			break
 		}
-		writeValue := handleCommand(value)
+		writeValue := handleCommand(value, store)
 		_, err = conn.Write(writeValue)
 		if err != nil {
 			fmt.Println("handleConn write: ", err.Error())
@@ -37,13 +37,14 @@ func main() {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)
 	}
+	store := NewStore()
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
 			continue
 		}
-		go handleConn(conn)
+		go handleConn(conn, store)
 	}
 
 }
