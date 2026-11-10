@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func cmd(args ...string) Value {
 	val := Value{
@@ -21,7 +24,7 @@ func TestHandleCommand(t *testing.T) {
 		name   string
 		input  Value
 		want   string
-		preset map[string]string
+		preset map[string]entry
 	}{
 		{
 			name:  "invalid value type",
@@ -64,10 +67,35 @@ func TestHandleCommand(t *testing.T) {
 			want:  "+OK\r\n",
 		},
 		{
-			name:   "GET cmd",
-			input:  cmd("GET", "name"),
-			want:   "$5\r\nAlice\r\n",
-			preset: map[string]string{"name": "Alice"},
+			name:  "SET cmd: out of range values in array",
+			input: cmd("SET", "name", "Alice", "PX"),
+			want:  "-ERR wrong number of arguments for 'set' command\r\n",
+		},
+		{
+			name:  "SET cmd: expires at 1 ms",
+			input: cmd("SET", "name", "Alice", "PX", "1"),
+			want:  "+OK\r\n",
+		},
+		{
+			name:  "GET cmd",
+			input: cmd("GET", "name"),
+			want:  "$5\r\nAlice\r\n",
+			preset: map[string]entry{
+				"name": {
+					value: "Alice",
+				},
+			},
+		},
+		{
+			name:  "expired key: GET cmd",
+			input: cmd("GET", "name"),
+			want:  "$-1\r\n",
+			preset: map[string]entry{
+				"name": {
+					value:     "Alice",
+					expiresAt: time.Now().Add(-time.Second),
+				},
+			},
 		},
 		{
 			name:  "invalid arguments for SET",
@@ -85,7 +113,7 @@ func TestHandleCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := NewStore()
 			for k, v := range tt.preset {
-				store.Set(k, v)
+				store.data[k] = v
 			}
 
 			got := handleCommand(tt.input, store)
