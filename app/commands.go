@@ -59,6 +59,22 @@ func getCmd(value Value, store *Store) []byte {
 	return encodeBulkString(data)
 }
 
+func rpushCmd(value Value, store *Store) []byte {
+	if len(value.Array) < 3 {
+		return encodeError("ERR wrong number of arguments for 'rpush' command")
+	}
+	key := value.Array[1].Str
+	vals := make([]string, len(value.Array)-2)
+	for i, v := range value.Array[2:] {
+		vals[i] = v.Str
+	}
+	l, err := store.RPush(key, vals...)
+	if err != nil {
+		return encodeError(err.Error())
+	}	
+	return encodeInteger(int64(l))
+}
+
 func handleCommand(value Value, store *Store) []byte {
 	if value.Type != '*' || len(value.Array) == 0 {
 		return encodeError("ERR invalid command format")
@@ -73,6 +89,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return setCmd(value, store)
 	case "GET":
 		return getCmd(value, store)
+	case "RPUSH":
+		return rpushCmd(value, store)
 	default:
 		return encodeError("ERR unknown command")
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"testing"
 	"time"
 )
@@ -82,7 +83,7 @@ func TestHandleCommand(t *testing.T) {
 			want:  "$5\r\nAlice\r\n",
 			preset: map[string]entry{
 				"name": {
-					value: "Alice",
+					str: "Alice",
 				},
 			},
 		},
@@ -92,7 +93,7 @@ func TestHandleCommand(t *testing.T) {
 			want:  "$-1\r\n",
 			preset: map[string]entry{
 				"name": {
-					value:     "Alice",
+					str:       "Alice",
 					expiresAt: time.Now().Add(-time.Second),
 				},
 			},
@@ -107,14 +108,49 @@ func TestHandleCommand(t *testing.T) {
 			input: cmd("GET"),
 			want:  "-ERR wrong number of arguments for 'get' command\r\n",
 		},
+		{
+			name:  "invalid arguments for RPUSH",
+			input: cmd("RPUSH"),
+			want:  "-ERR wrong number of arguments for 'rpush' command\r\n",
+		},
+		{
+			name:  "set string and change it to RPUSH",
+			input: cmd("RPUSH", "key", "value"),
+			want:  "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n",
+			preset: map[string]entry{
+				"key": {
+					str:  "123",
+					kind: 's',
+				},
+			},
+		},
+		{
+			name:  "cmd: rpush, set one value",
+			input: cmd("RPUSH", "key", "value"),
+			want:  ":1\r\n",
+		},
+		{
+			name:  "cmd: rpush, set three value",
+			input: cmd("RPUSH", "key", "value", "value 1", "value 2"),
+			want:  ":3\r\n",
+		},
+		{
+			name:  "cmd: rpush, append a value",
+			input: cmd("RPUSH", "key", "value"),
+			want:  ":3\r\n",
+			preset: map[string]entry{
+				"key": {
+					kind: 'l',
+					list: []string{"one", "two"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := NewStore()
-			for k, v := range tt.preset {
-				store.data[k] = v
-			}
+			maps.Copy(store.data, tt.preset)
 
 			got := handleCommand(tt.input, store)
 			if string(got) != tt.want {
