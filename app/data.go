@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 )
@@ -30,21 +30,21 @@ func NewStore() *Store {
 func (s *Store) Set(key, value string, ttl time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	entry := entry{
+	e := entry{
 		str:  value,
 		kind: kindString,
 	}
 	if ttl > 0 {
-		entry.expiresAt = time.Now().Add(ttl)
+		e.expiresAt = time.Now().Add(ttl)
 	}
-	s.data[key] = entry
+	s.data[key] = e
 }
 
 func (s *Store) RPush(key string, value ...string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, ok := s.data[key]
-	if !ok || s.isExpired(data) {
+	data, ok := s.lookup(key)
+	if !ok {
 		// create
 		e := entry{
 			list: append([]string(nil), value...),
@@ -54,7 +54,7 @@ func (s *Store) RPush(key string, value ...string) (int, error) {
 		return len(e.list), nil
 	}
 	if data.kind != kindList {
-		return 0, fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")
+		return 0, WrongType
 	}
 	// append
 	data.list = append(data.list, value...)
@@ -62,17 +62,57 @@ func (s *Store) RPush(key string, value ...string) (int, error) {
 	return len(data.list), nil
 }
 
-func (s *Store) Get(key string) (string, bool) {
+func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, ok := s.data[key]
-	if s.isExpired(data) {
-		delete(s.data, key)
-		return "", false
+	data, ok := s.lookup(key)
+	if !ok {
+		return []string{}, nil
 	}
-	return data.str, ok
+	if data.kind != kindList {
+		return []string{}, WrongType
+	}
+	l := len(data.list)
+	if start < 0 {
+		start += l
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	if stop < 0 {
+		stop += l
+	}
+
+	if stop >= l {
+		stop = l - 1
+	}
+
+	if start > stop || start >= l {
+		return []string{}, nil
+	}
+
+	return append([]string(nil), data.list[start:stop+1]...), nil
 }
 
-func (s *Store) isExpired(data entry) bool {
-	return !data.expiresAt.IsZero() && time.Now().After(data.expiresAt)
+func (s *Store) Get(key string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.lookup(key)
+	if !ok {
+		return "", errors.New("")
+	}
+	if e.kind != kindString {
+		return "", WrongType
+	}
+	return e.str, nil
+}
+
+func (s *Store) lookup(key string) (entry, bool) {
+	e, ok := s.data[key]
+	if ok && !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
+		delete(s.data, key)
+		return entry{}, false
+	}
+	return e, ok
 }

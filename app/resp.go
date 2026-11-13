@@ -114,3 +114,11 @@ func encodeError(msg string) []byte {
 func encodeInteger(n int64) []byte {
 	return fmt.Appendf(nil, ":%d\r\n", n)
 }
+
+func encodeStringArray(str []string) []byte {
+	var s []byte = []byte(fmt.Appendf(nil, "*%d\r\n", len(str)))
+	for _, st := range str {
+		s = fmt.Appendf(s, "$%d\r\n%s\r\n", len(st), st)
+	}
+	return s
+}

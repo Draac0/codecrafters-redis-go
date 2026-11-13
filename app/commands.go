@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -52,8 +53,11 @@ func getCmd(value Value, store *Store) []byte {
 		return encodeError("ERR wrong number of arguments for 'get' command")
 	}
 	key := value.Array[1].Str
-	data, ok := store.Get(key)
-	if !ok {
+	data, err := store.Get(key)
+	if err != nil {
+		if errors.Is(err, WrongType) {
+			return encodeError(err.Error())
+		}
 		return encodeNullBulkString()
 	}
 	return encodeBulkString(data)
@@ -71,8 +75,29 @@ func rpushCmd(value Value, store *Store) []byte {
 	l, err := store.RPush(key, vals...)
 	if err != nil {
 		return encodeError(err.Error())
-	}	
+	}
 	return encodeInteger(int64(l))
+}
+
+func lrangeCmd(value Value, store *Store) []byte {
+	if len(value.Array) != 4 {
+		return encodeError("ERR wrong number of arguments for 'lrange' command")
+	}
+	arr := value.Array
+	key := arr[1].Str
+	start, err := strconv.Atoi(arr[2].Str)
+	if err != nil {
+		return encodeError("ERR value is not an integer or out of range")
+	}
+	end, err := strconv.Atoi(arr[3].Str)
+	if err != nil {
+		return encodeError("ERR value is not an integer or out of range")
+	}
+	list, err := store.LRange(key, start, end)
+	if err != nil {
+		return encodeError(err.Error())
+	}
+	return encodeStringArray(list)
 }
 
 func handleCommand(value Value, store *Store) []byte {
@@ -91,6 +116,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return getCmd(value, store)
 	case "RPUSH":
 		return rpushCmd(value, store)
+	case "LRANGE":
+		return lrangeCmd(value, store)
 	default:
 		return encodeError("ERR unknown command")
 	}

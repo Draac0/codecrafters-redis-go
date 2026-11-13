@@ -21,6 +21,9 @@ func cmd(args ...string) Value {
 }
 
 func TestHandleCommand(t *testing.T) {
+	abc := map[string]entry{
+		"list": {kind: kindList, list: []string{"a", "b", "c"}},
+	}
 	tests := []struct {
 		name   string
 		input  Value
@@ -83,7 +86,8 @@ func TestHandleCommand(t *testing.T) {
 			want:  "$5\r\nAlice\r\n",
 			preset: map[string]entry{
 				"name": {
-					str: "Alice",
+					str:  "Alice",
+					kind: kindString,
 				},
 			},
 		},
@@ -144,6 +148,78 @@ func TestHandleCommand(t *testing.T) {
 					list: []string{"one", "two"},
 				},
 			},
+		},
+		{
+			name:  "invalid arguments for LRANGE",
+			input: cmd("LRANGE"),
+			want:  "-ERR wrong number of arguments for 'lrange' command\r\n",
+		},
+		{
+			name:  "invalid arguments for LRANGE (non integer values)",
+			input: cmd("LRANGE", "key", "ab", "1"),
+			want:  "-ERR value is not an integer or out of range\r\n",
+		},
+		{
+			name:   "LRANGE first two",
+			input:  cmd("LRANGE", "list", "0", "1"),
+			want:   "*2\r\n$1\r\na\r\n$1\r\nb\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE single element",
+			input:  cmd("LRANGE", "list", "1", "1"),
+			want:   "*1\r\n$1\r\nb\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE whole list with -1",
+			input:  cmd("LRANGE", "list", "0", "-1"),
+			want:   "*3\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE last two",
+			input:  cmd("LRANGE", "list", "-2", "-1"),
+			want:   "*2\r\n$1\r\nb\r\n$1\r\nc\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE last only",
+			input:  cmd("LRANGE", "list", "-1", "-1"),
+			want:   "*1\r\n$1\r\nc\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE start far below zero is clamped",
+			input:  cmd("LRANGE", "list", "-10", "1"),
+			want:   "*2\r\n$1\r\na\r\n$1\r\nb\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE stop far below zero",
+			input:  cmd("LRANGE", "list", "0", "-10"),
+			want:   "*0\r\n",
+			preset: abc,
+		},
+
+		// --- out of range ---
+		{
+			name:   "LRANGE stop past end is clamped",
+			input:  cmd("LRANGE", "list", "0", "10"),
+			want:   "*3\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE start past end",
+			input:  cmd("LRANGE", "list", "5", "10"),
+			want:   "*0\r\n",
+			preset: abc,
+		},
+		{
+			name:   "LRANGE start after stop",
+			input:  cmd("LRANGE", "list", "2", "1"),
+			want:   "*0\r\n",
+			preset: abc,
 		},
 	}
 
