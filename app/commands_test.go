@@ -221,6 +221,11 @@ func TestHandleCommand(t *testing.T) {
 			want:   "*0\r\n",
 			preset: abc,
 		},
+		{
+			name:  "cmd: lpush, set values",
+			input: cmd("LPUSH", "key", "a", "b", "c"),
+			want:  ":3\r\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -248,5 +253,27 @@ func TestSetOverwrite(t *testing.T) {
 
 	if string(got) != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLPush(t *testing.T) {
+	store := NewStore()
+	got := handleCommand(cmd("LPUSH", "list", "a", "b", "c"), store)
+	want := ":3\r\n"
+	if string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+		return
+	}
+	got = handleCommand(cmd("LPUSH", "list", "d", "e"), store)
+	want = ":5\r\n"
+	if string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+		return
+	}
+	got = handleCommand(cmd("LRANGE", "list" ,"0", "4"), store)
+	want = "*5\r\n$1\r\ne\r\n$1\r\nd\r\n$1\r\nc\r\n$1\r\nb\r\n$1\r\na\r\n"
+	if string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+		return
 	}
 }

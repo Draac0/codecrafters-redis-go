@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"slices"
 	"sync"
 	"time"
 )
@@ -58,6 +59,27 @@ func (s *Store) RPush(key string, value ...string) (int, error) {
 	}
 	// append
 	data.list = append(data.list, value...)
+	s.data[key] = data
+	return len(data.list), nil
+}
+
+func (s *Store) LPush(key string, values ...string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.lookup(key)
+	slices.Reverse(values)
+	if !ok {
+		e := entry{
+			list: append([]string(nil), values...),
+			kind: kindList,
+		}
+		s.data[key] = e
+		return len(e.list), nil
+	}
+	if data.kind != kindList {
+		return 0, WrongType
+	}
+	data.list = append(values, data.list...)
 	s.data[key] = data
 	return len(data.list), nil
 }

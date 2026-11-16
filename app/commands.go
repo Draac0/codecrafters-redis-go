@@ -100,6 +100,22 @@ func lrangeCmd(value Value, store *Store) []byte {
 	return encodeStringArray(list)
 }
 
+func lpushCmd(value Value, store *Store)  []byte {
+	if len(value.Array) < 3 {
+		return encodeError("ERR wrong number of arguments for 'lpush' command")
+	}
+	key := value.Array[1].Str
+	vals := make([]string, len(value.Array)-2)
+	for i, v := range value.Array[2:] {
+		vals[i] = v.Str
+	}
+	l, err := store.LPush(key, vals...)
+	if err != nil {
+		return encodeError(err.Error())
+	}
+	return encodeInteger(int64(l))
+}
+
 func handleCommand(value Value, store *Store) []byte {
 	if value.Type != '*' || len(value.Array) == 0 {
 		return encodeError("ERR invalid command format")
@@ -116,6 +132,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return getCmd(value, store)
 	case "RPUSH":
 		return rpushCmd(value, store)
+	case "LPUSH":
+		return lpushCmd(value, store)
 	case "LRANGE":
 		return lrangeCmd(value, store)
 	default:
