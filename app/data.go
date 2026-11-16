@@ -88,7 +88,7 @@ func (s *Store) LLen(key string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, ok := s.lookup(key)
-	if data.kind != kindList {
+	if ok && data.kind != kindList {
 		return 0, WrongType
 	}
 	if !ok {
