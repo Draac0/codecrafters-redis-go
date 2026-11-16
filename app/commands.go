@@ -116,6 +116,18 @@ func lpushCmd(value Value, store *Store)  []byte {
 	return encodeInteger(int64(l))
 }
 
+func llenCmd(value Value, store *Store) []byte {
+	if len(value.Array) != 2 {
+		return encodeError("ERR wrong number of arguments for 'llen' command")
+	}
+	key := value.Array[1].Str
+	l, err := store.LLen(key)
+	if err != nil {
+		return encodeError(err.Error())
+	}
+	return encodeInteger(int64(l))
+}
+
 func handleCommand(value Value, store *Store) []byte {
 	if value.Type != '*' || len(value.Array) == 0 {
 		return encodeError("ERR invalid command format")
@@ -136,6 +148,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return lpushCmd(value, store)
 	case "LRANGE":
 		return lrangeCmd(value, store)
+	case "LLEN":
+		return llenCmd(value, store)
 	default:
 		return encodeError("ERR unknown command")
 	}

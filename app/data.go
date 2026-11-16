@@ -84,6 +84,19 @@ func (s *Store) LPush(key string, values ...string) (int, error) {
 	return len(data.list), nil
 }
 
+func (s *Store) LLen(key string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.lookup(key)
+	if data.kind != kindList {
+		return 0, WrongType
+	}
+	if !ok {
+		return 0, nil
+	}
+	return len(data.list), nil
+}
+
 func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

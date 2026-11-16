@@ -226,6 +226,12 @@ func TestHandleCommand(t *testing.T) {
 			input: cmd("LPUSH", "key", "a", "b", "c"),
 			want:  ":3\r\n",
 		},
+		{
+			name:  "cmd: llen",
+			input: cmd("LLEN", "list"),
+			want:  ":3\r\n",
+			preset: abc,
+		},
 	}
 
 	for _, tt := range tests {
