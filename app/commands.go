@@ -159,12 +159,19 @@ func lpopCmd(value Value, store *Store) []byte {
 	return encodeBulkString(elements[0])
 }
 
-func blpopCmd(value Value, store *Store) [] byte {
+func blpopCmd(value Value, store *Store) []byte {
 	if len(value.Array) < 3 {
 		return encodeError("ERR wrong number of arguments for 'blpop' command")
 	}
 	key := value.Array[1].Str
-	elements, hasTimedOut, err := store.BLPop(key, 0)
+	seconds, err := strconv.ParseFloat(value.Array[2].Str, 64)
+	if err != nil {
+		return encodeError("ERR timeout is not a float or out of range")
+	}
+	if seconds < 0 {
+		return encodeError("ERR timeout is negative")
+	}
+	elements, hasTimedOut, err := store.BLPop(key, int(seconds * 1000))
 	if err != nil {
 		return encodeError(err.Error())
 	}

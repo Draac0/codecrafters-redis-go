@@ -150,21 +150,37 @@ func (s *Store) serveWaiters(key string) {
 	}
 }
 
-func (s *Store) BLPop(key string, timeout int) ([]string, bool, error) { // [key, element], is timed out, error msg
-	s.mu.Lock()
-	data, ok := s.lookup(key)
-	if ok && data.kind != kindList {
-		s.mu.Unlock()
-		return []string{}, false, ErrWrongType
-	}
-	if ok && len(data.list) > 0 {
-		element, _, err := s.lpopLocked(key, 1)
-		s.mu.Unlock()
-		if err != nil {
-			return []string{}, false, err
+func (s *Store) blpopTimer(key string, timeout int) ([]string, bool, error) {
+	// Called with s.mu held; releases it before waiting.
+	ch := make(chan string, 1)
+	duration := time.Duration(timeout * int(time.Millisecond))
+	timer := time.NewTimer(duration)
+	s.waiters[key] = append(s.waiters[key], ch)
+	s.mu.Unlock()
+	select {
+	case elem := <-ch:
+		timer.Stop()
+		return []string{key, elem}, false, nil
+	case <-timer.C: // timeout
+		s.mu.Lock()
+		waiter := s.waiters[key]
+		i := slices.Index(waiter, ch)
+		if i != -1 {
+			s.waiters[key] = append(waiter[:i], waiter[i+1:]...)
+			if len(s.waiters[key]) == 0 {
+				delete(s.waiters, key)
+			}
+			s.mu.Unlock()
+			return nil, true, nil
 		}
-		return []string{key, element[0]}, false, nil
+		s.mu.Unlock()
+		elem := <-ch
+		return []string{key, elem}, false, nil
 	}
+}
+
+func (s *Store) blpopIndefinite(key string) ([]string, bool, error) {
+	// Called with s.mu held; releases it before waiting.
 	ch := make(chan string, 1)
 	s.waiters[key] = append(s.waiters[key], ch)
 	s.mu.Unlock()
@@ -172,15 +188,36 @@ func (s *Store) BLPop(key string, timeout int) ([]string, bool, error) { // [key
 	return []string{key, element}, false, nil
 }
 
+func (s *Store) BLPop(key string, timeout int) ([]string, bool, error) { // [key, element], is timed out, error msg
+	s.mu.Lock()
+	data, ok := s.lookup(key)
+	if ok && data.kind != kindList {
+		s.mu.Unlock()
+		return nil, false, ErrWrongType
+	}
+	if ok && len(data.list) > 0 {
+		element, _, err := s.lpopLocked(key, 1)
+		s.mu.Unlock()
+		if err != nil {
+			return nil, false, err
+		}
+		return []string{key, element[0]}, false, nil
+	}
+	if timeout > 0 {
+		return s.blpopTimer(key, timeout)
+	}
+	return s.blpopIndefinite(key)
+}
+
 func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, ok := s.lookup(key)
 	if !ok {
-		return []string{}, nil
+		return nil, nil
 	}
 	if data.kind != kindList {
-		return []string{}, ErrWrongType
+		return nil, ErrWrongType
 	}
 	l := len(data.list)
 	if start < 0 {
@@ -199,7 +236,7 @@ func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
 	}
 
 	if start > stop || start >= l {
-		return []string{}, nil
+		return nil, nil
 	}
 
 	return append([]string(nil), data.list[start:stop+1]...), nil
