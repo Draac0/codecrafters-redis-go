@@ -159,6 +159,21 @@ func lpopCmd(value Value, store *Store) []byte {
 	return encodeBulkString(elements[0])
 }
 
+func blpopCmd(value Value, store *Store) [] byte {
+	if len(value.Array) < 3 {
+		return encodeError("ERR wrong number of arguments for 'blpop' command")
+	}
+	key := value.Array[1].Str
+	elements, hasTimedOut, err := store.BLPop(key, 0)
+	if err != nil {
+		return encodeError(err.Error())
+	}
+	if hasTimedOut {
+		return encodeNullArray()
+	}
+	return encodeStringArray(elements)
+}
+
 func handleCommand(value Value, store *Store) []byte {
 	if value.Type != '*' || len(value.Array) == 0 {
 		return encodeError("ERR invalid command format")
@@ -183,6 +198,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return llenCmd(value, store)
 	case "LPOP":
 		return lpopCmd(value, store)
+	case "BLPOP":
+		return blpopCmd(value, store)
 	default:
 		return encodeError("ERR unknown command")
 	}

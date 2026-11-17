@@ -330,6 +330,26 @@ func TestHandleCommand(t *testing.T) {
 			want:   "-ERR value is out of range, must be positive\r\n",
 			preset: listPreset("a", "b", "c"),
 		},
+
+		{
+			name:   "BLPOP pops immediately when list has elements",
+			input:  cmd("BLPOP", "list", "0"),
+			want:   "*2\r\n$4\r\nlist\r\n$1\r\na\r\n",
+			preset: listPreset("a", "b"),
+		},
+		{
+			name:  "BLPOP on string key",
+			input: cmd("BLPOP", "name", "0"),
+			want:  "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n",
+			preset: map[string]entry{
+				"name": {kind: kindString, str: "Alice"},
+			},
+		},
+		{
+			name:  "BLPOP missing timeout",
+			input: cmd("BLPOP", "list"),
+			want:  "-ERR wrong number of arguments for 'blpop' command\r\n",
+		},
 	}
 
 	for _, tt := range tests {

@@ -20,12 +20,13 @@ const (
 )
 
 type Store struct {
-	mu   sync.Mutex
-	data map[string]entry
+	mu      sync.Mutex
+	data    map[string]entry
+	waiters map[string][]chan string
 }
 
 func NewStore() *Store {
-	return &Store{data: make(map[string]entry)}
+	return &Store{data: make(map[string]entry), waiters: make(map[string][]chan string)}
 }
 
 func (s *Store) Set(key, value string, ttl time.Duration) {
@@ -45,43 +46,47 @@ func (s *Store) RPush(key string, value ...string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, ok := s.lookup(key)
+	if ok && data.kind != kindList {
+		return 0, ErrWrongType
+	}
 	if !ok {
-		// create
 		e := entry{
 			list: append([]string(nil), value...),
 			kind: kindList,
 		}
 		s.data[key] = e
-		return len(e.list), nil
+	} else {
+		data.list = append(data.list, value...)
+		s.data[key] = data
 	}
-	if data.kind != kindList {
-		return 0, ErrWrongType
-	}
-	// append
-	data.list = append(data.list, value...)
-	s.data[key] = data
-	return len(data.list), nil
+	l := len(s.data[key].list)
+	s.serveWaiters(key)
+	return l, nil
 }
 
 func (s *Store) LPush(key string, values ...string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data, ok := s.lookup(key)
-	slices.Reverse(values)
+	if ok && data.kind != kindList {
+		return 0, ErrWrongType
+	}
+	newItems := slices.Clone(values)
+	slices.Reverse(newItems)
 	if !ok {
 		e := entry{
 			list: append([]string(nil), values...),
 			kind: kindList,
 		}
 		s.data[key] = e
-		return len(e.list), nil
+	} else {
+		data.list = append(values, data.list...)
+		s.data[key] = data
 	}
-	if data.kind != kindList {
-		return 0, ErrWrongType
-	}
-	data.list = append(values, data.list...)
-	s.data[key] = data
-	return len(data.list), nil
+
+	l := len(s.data[key].list)
+	s.serveWaiters(key)
+	return l, nil
 }
 
 func (s *Store) LLen(key string) (int, error) {
@@ -97,9 +102,7 @@ func (s *Store) LLen(key string) (int, error) {
 	return len(data.list), nil
 }
 
-func (s *Store) LPop(key string, count int) ([]string, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) lpopLocked(key string, count int) ([]string, bool, error) {
 	data, ok := s.lookup(key)
 	var removedElements []string
 	if ok && data.kind != kindList {
@@ -119,6 +122,54 @@ func (s *Store) LPop(key string, count int) ([]string, bool, error) {
 		delete(s.data, key)
 	}
 	return removedElements, true, nil
+}
+
+func (s *Store) LPop(key string, count int) ([]string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lpopLocked(key, count)
+}
+
+func (s *Store) serveWaiters(key string) {
+	waiters, ok := s.waiters[key]
+	if !ok || len(waiters) == 0 {
+		return
+	}
+	data, ok := s.lookup(key)
+	if !ok {
+		return
+	}
+	loopLen := min(len(data.list), len(waiters))
+	elements, _, _ := s.lpopLocked(key, loopLen)
+	for i := range loopLen {
+		waiters[i] <- elements[i]
+	}
+	s.waiters[key] = waiters[loopLen:]
+	if len(s.waiters[key]) == 0 {
+		delete(s.waiters, key)
+	}
+}
+
+func (s *Store) BLPop(key string, timeout int) ([]string, bool, error) { // [key, element], is timed out, error msg
+	s.mu.Lock()
+	data, ok := s.lookup(key)
+	if ok && data.kind != kindList {
+		s.mu.Unlock()
+		return []string{}, false, ErrWrongType
+	}
+	if ok && len(data.list) > 0 {
+		element, _, err := s.lpopLocked(key, 1)
+		s.mu.Unlock()
+		if err != nil {
+			return []string{}, false, err
+		}
+		return []string{key, element[0]}, false, nil
+	}
+	ch := make(chan string, 1)
+	s.waiters[key] = append(s.waiters[key], ch)
+	s.mu.Unlock()
+	element := <-ch // waits here until ch has a value
+	return []string{key, element}, false, nil
 }
 
 func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
