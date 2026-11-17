@@ -107,6 +107,10 @@ func encodeNullBulkString() []byte {
 	return []byte("$-1\r\n")
 }
 
+func encodeNullArray() []byte {
+	return []byte("*-1\r\n")
+}
+
 func encodeError(msg string) []byte {
 	return fmt.Appendf(nil, "-%s\r\n", msg)
 }

@@ -55,7 +55,7 @@ func (s *Store) RPush(key string, value ...string) (int, error) {
 		return len(e.list), nil
 	}
 	if data.kind != kindList {
-		return 0, WrongType
+		return 0, ErrWrongType
 	}
 	// append
 	data.list = append(data.list, value...)
@@ -77,7 +77,7 @@ func (s *Store) LPush(key string, values ...string) (int, error) {
 		return len(e.list), nil
 	}
 	if data.kind != kindList {
-		return 0, WrongType
+		return 0, ErrWrongType
 	}
 	data.list = append(values, data.list...)
 	s.data[key] = data
@@ -89,12 +89,36 @@ func (s *Store) LLen(key string) (int, error) {
 	defer s.mu.Unlock()
 	data, ok := s.lookup(key)
 	if ok && data.kind != kindList {
-		return 0, WrongType
+		return 0, ErrWrongType
 	}
 	if !ok {
 		return 0, nil
 	}
 	return len(data.list), nil
+}
+
+func (s *Store) LPop(key string, count int) ([]string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.lookup(key)
+	var removedElements []string
+	if ok && data.kind != kindList {
+		return removedElements, true, ErrWrongType
+	}
+	if !ok {
+		return removedElements, false, nil
+	}
+	popSliceLen := min(count, len(data.list))
+	removedElements = append([]string(nil), data.list[:popSliceLen]...)
+	for i := 0; i < popSliceLen; i++ {
+		data.list[i] = ""
+	}
+	data.list = data.list[popSliceLen:]
+	s.data[key] = data
+	if len(data.list) == 0 {
+		delete(s.data, key)
+	}
+	return removedElements, true, nil
 }
 
 func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
@@ -105,7 +129,7 @@ func (s *Store) LRange(key string, start int, stop int) ([]string, error) {
 		return []string{}, nil
 	}
 	if data.kind != kindList {
-		return []string{}, WrongType
+		return []string{}, ErrWrongType
 	}
 	l := len(data.list)
 	if start < 0 {
@@ -138,7 +162,7 @@ func (s *Store) Get(key string) (string, error) {
 		return "", errors.New("")
 	}
 	if e.kind != kindString {
-		return "", WrongType
+		return "", ErrWrongType
 	}
 	return e.str, nil
 }

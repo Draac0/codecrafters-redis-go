@@ -55,7 +55,7 @@ func getCmd(value Value, store *Store) []byte {
 	key := value.Array[1].Str
 	data, err := store.Get(key)
 	if err != nil {
-		if errors.Is(err, WrongType) {
+		if errors.Is(err, ErrWrongType) {
 			return encodeError(err.Error())
 		}
 		return encodeNullBulkString()
@@ -100,7 +100,7 @@ func lrangeCmd(value Value, store *Store) []byte {
 	return encodeStringArray(list)
 }
 
-func lpushCmd(value Value, store *Store)  []byte {
+func lpushCmd(value Value, store *Store) []byte {
 	if len(value.Array) < 3 {
 		return encodeError("ERR wrong number of arguments for 'lpush' command")
 	}
@@ -128,6 +128,37 @@ func llenCmd(value Value, store *Store) []byte {
 	return encodeInteger(int64(l))
 }
 
+func lpopCmd(value Value, store *Store) []byte {
+	if len(value.Array) < 2 || len(value.Array) > 3 {
+		return encodeError("ERR wrong number of arguments for 'lpop' command")
+	}
+	key := value.Array[1].Str
+	count := 1
+	hasCountArg := false
+	if len(value.Array) == 3 {
+		c, err := strconv.Atoi(value.Array[2].Str)
+		if err != nil || c < 0 {
+			return encodeError("ERR value is out of range, must be positive")
+		}
+		count = c
+		hasCountArg = true
+	}
+	elements, ok, err := store.LPop(key, count)
+	if err != nil {
+		return encodeError(err.Error())
+	}
+	if !ok {
+		if hasCountArg {
+			return encodeNullArray()
+		}
+		return encodeNullBulkString()
+	}
+	if hasCountArg {
+		return encodeStringArray(elements)
+	}
+	return encodeBulkString(elements[0])
+}
+
 func handleCommand(value Value, store *Store) []byte {
 	if value.Type != '*' || len(value.Array) == 0 {
 		return encodeError("ERR invalid command format")
@@ -150,6 +181,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return lrangeCmd(value, store)
 	case "LLEN":
 		return llenCmd(value, store)
+	case "LPOP":
+		return lpopCmd(value, store)
 	default:
 		return encodeError("ERR unknown command")
 	}

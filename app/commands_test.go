@@ -20,6 +20,12 @@ func cmd(args ...string) Value {
 	return val
 }
 
+func listPreset(vals ...string) map[string]entry {
+	return map[string]entry{
+		"list": {kind: kindList, list: append([]string(nil), vals...)},
+	}
+}
+
 func TestHandleCommand(t *testing.T) {
 	abc := map[string]entry{
 		"list": {kind: kindList, list: []string{"a", "b", "c"}},
@@ -227,10 +233,102 @@ func TestHandleCommand(t *testing.T) {
 			want:  ":3\r\n",
 		},
 		{
-			name:  "cmd: llen",
-			input: cmd("LLEN", "list"),
-			want:  ":3\r\n",
+			name:   "cmd: llen",
+			input:  cmd("LLEN", "list"),
+			want:   ":3\r\n",
 			preset: abc,
+		},
+		// --- reply shapes ---
+		{
+			name:   "LPOP without count returns bulk string",
+			input:  cmd("LPOP", "list"),
+			want:   "$1\r\na\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "LPOP with count returns array",
+			input:  cmd("LPOP", "list", "2"),
+			want:   "*2\r\n$1\r\na\r\n$1\r\nb\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "LPOP count 1 still returns array",
+			input:  cmd("LPOP", "list", "1"),
+			want:   "*1\r\n$1\r\na\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "LPOP count larger than list",
+			input:  cmd("LPOP", "list", "10"),
+			want:   "*3\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "LPOP count 0 returns empty array",
+			input:  cmd("LPOP", "list", "0"),
+			want:   "*0\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "lpop lowercase",
+			input:  cmd("lpop", "list"),
+			want:   "$1\r\na\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+
+		// --- missing and expired keys ---
+		{
+			name:  "LPOP missing key without count",
+			input: cmd("LPOP", "nope"),
+			want:  "$-1\r\n",
+		},
+		{
+			name:  "LPOP missing key with count",
+			input: cmd("LPOP", "nope", "2"),
+			want:  "*-1\r\n",
+		},
+		{
+			name:  "LPOP expired list",
+			input: cmd("LPOP", "list"),
+			want:  "$-1\r\n",
+			preset: map[string]entry{
+				"list": {kind: kindList, list: []string{"a"}, expiresAt: time.Now().Add(-time.Second)},
+			},
+		},
+
+		// --- wrong type ---
+		{
+			name:  "LPOP on string key",
+			input: cmd("LPOP", "name"),
+			want:  "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n",
+			preset: map[string]entry{
+				"name": {kind: kindString, str: "Alice"},
+			},
+		},
+
+		// --- bad arguments ---
+		{
+			name:  "LPOP no key",
+			input: cmd("LPOP"),
+			want:  "-ERR wrong number of arguments for 'lpop' command\r\n",
+		},
+		{
+			name:   "LPOP too many arguments",
+			input:  cmd("LPOP", "list", "1", "2"),
+			want:   "-ERR wrong number of arguments for 'lpop' command\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "LPOP negative count",
+			input:  cmd("LPOP", "list", "-1"),
+			want:   "-ERR value is out of range, must be positive\r\n",
+			preset: listPreset("a", "b", "c"),
+		},
+		{
+			name:   "LPOP non-integer count",
+			input:  cmd("LPOP", "list", "abc"),
+			want:   "-ERR value is out of range, must be positive\r\n",
+			preset: listPreset("a", "b", "c"),
 		},
 	}
 
@@ -276,10 +374,57 @@ func TestLPush(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 		return
 	}
-	got = handleCommand(cmd("LRANGE", "list" ,"0", "4"), store)
+	got = handleCommand(cmd("LRANGE", "list", "0", "4"), store)
 	want = "*5\r\n$1\r\ne\r\n$1\r\nd\r\n$1\r\nc\r\n$1\r\nb\r\n$1\r\na\r\n"
 	if string(got) != want {
 		t.Errorf("got %q, want %q", got, want)
 		return
+	}
+}
+
+func TestLPopRemovesElements(t *testing.T) {
+	store := NewStore()
+	handleCommand(cmd("RPUSH", "list", "a", "b", "c"), store)
+
+	// two pops come off the front, in order
+	if got := string(handleCommand(cmd("LPOP", "list"), store)); got != "$1\r\na\r\n" {
+		t.Errorf("first pop: got %q", got)
+	}
+	if got := string(handleCommand(cmd("LPOP", "list"), store)); got != "$1\r\nb\r\n" {
+		t.Errorf("second pop: got %q", got)
+	}
+
+	// only "c" remains
+	got := string(handleCommand(cmd("LRANGE", "list", "0", "-1"), store))
+	if want := "*1\r\n$1\r\nc\r\n"; got != want {
+		t.Errorf("remaining: got %q, want %q", got, want)
+	}
+}
+
+func TestLPopAllDeletesKey(t *testing.T) {
+	store := NewStore()
+	handleCommand(cmd("RPUSH", "list", "a", "b"), store)
+	handleCommand(cmd("LPOP", "list", "10"), store)
+
+	// the key itself must be gone, not left holding an empty list
+	if _, exists := store.data["list"]; exists {
+		t.Errorf("key still exists after popping every element")
+	}
+
+	// pushing again starts a fresh list
+	got := string(handleCommand(cmd("RPUSH", "list", "z"), store))
+	if want := ":1\r\n"; got != want {
+		t.Errorf("RPUSH after empty: got %q, want %q", got, want)
+	}
+}
+
+func TestLPopZeroLeavesListUnchanged(t *testing.T) {
+	store := NewStore()
+	handleCommand(cmd("RPUSH", "list", "a", "b"), store)
+	handleCommand(cmd("LPOP", "list", "0"), store)
+
+	got := string(handleCommand(cmd("LRANGE", "list", "0", "-1"), store))
+	if want := "*2\r\n$1\r\na\r\n$1\r\nb\r\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
