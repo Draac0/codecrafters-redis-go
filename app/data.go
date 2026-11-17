@@ -75,12 +75,12 @@ func (s *Store) LPush(key string, values ...string) (int, error) {
 	slices.Reverse(newItems)
 	if !ok {
 		e := entry{
-			list: append([]string(nil), values...),
+			list: append([]string(nil), newItems...),
 			kind: kindList,
 		}
 		s.data[key] = e
 	} else {
-		data.list = append(values, data.list...)
+		data.list = append(newItems, data.list...)
 		s.data[key] = data
 	}
 
