@@ -181,6 +181,15 @@ func blpopCmd(value Value, store *Store) []byte {
 	return encodeStringArray(elements)
 }
 
+func typeCmd(value Value, store *Store) []byte {
+	if len(value.Array) != 2 {
+		return encodeError("ERR wrong number of arguments for 'type' command")
+	}
+	key := value.Array[1].Str
+	t := store.Type(key)
+	return encodeSimpleString(t)
+}
+
 func handleCommand(value Value, store *Store) []byte {
 	if value.Type != '*' || len(value.Array) == 0 {
 		return encodeError("ERR invalid command format")
@@ -207,6 +216,8 @@ func handleCommand(value Value, store *Store) []byte {
 		return lpopCmd(value, store)
 	case "BLPOP":
 		return blpopCmd(value, store)
+	case "TYPE":
+		return typeCmd(value, store)
 	default:
 		return encodeError("ERR unknown command")
 	}

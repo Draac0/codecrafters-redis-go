@@ -255,6 +255,23 @@ func (s *Store) Get(key string) (string, error) {
 	return e.str, nil
 }
 
+func (s *Store) Type(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.lookup(key)
+	if !ok {
+		return "none"
+	}
+	switch e.kind {
+	case kindList:
+		return "list"
+	case kindString:
+		return "string"
+	default:
+		return "none"
+	}
+}
+
 func (s *Store) lookup(key string) (entry, bool) {
 	e, ok := s.data[key]
 	if ok && !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
